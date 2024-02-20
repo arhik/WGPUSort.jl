@@ -4,11 +4,16 @@ using WGPUCore
 using MacroTools
 using WGSLTypes
 using WGSLTypes: @letvar
+using TracyProfiler_jll
+using Tracy
+
 WGPUCore.SetLogLevel(WGPUCore.WGPULogLevel_Off)
 
-x = WgpuArray{Float32}(rand(Float32, 8, 8) .- 0.5f0)
+run(TracyProfiler_jll.tracy(); wait=false)
 
-@wgpukernel workgroupSizes=(4, 4) workgroupCount=(2, 2) function prefixsum_kernel(x::WgpuArray{T, N}, out::WgpuArray{T, N}) where {T, N}
+x = WgpuArray{Float32}(rand(Float32, 2048, 2048) .- 0.5f0)
+
+@wgpukernel workgroupSizes=(16, 16) workgroupCount=(128, 128) function prefixsum_kernel(x::WgpuArray{T, N}, out::WgpuArray{T, N}) where {T, N}
 	xdim = workgroupDims.x
 	ydim = workgroupDims.y
 	gIdx = workgroupId.x*xdim + localId.x
@@ -17,24 +22,24 @@ x = WgpuArray{Float32}(rand(Float32, 8, 8) .- 0.5f0)
 	out[gId] = T(gId)
 end
 
-@wgpukernel workgroupSizes=(4, 4) workgroupCount=(2, 2) function cast_kernel(x::WgpuArray{T, N}, out::WgpuArray{S, N}) where {T, S, N}
+@wgpukernel workgroupSizes=(16, 16) workgroupCount=(128, 128) function cast_kernel(x::WgpuArray{T, N}, out::WgpuArray{S, N}) where {T, S, N}
 	xdim = workgroupDims.x
 	ydim = workgroupDims.y
 	gIdx = workgroupId.x*xdim + localId.x
 	gIdy = workgroupId.y*ydim + localId.y
 	gId = xDims.x*gIdy + gIdx
-	out[gId] = S(ceil(x[gId]))
+	out[gId] = S(x[gId])
 end
 
-function cast(S::DataType, x::WgpuArray{T, N}) where {T, N}
+@tracepoint function cast(S::DataType, x::WgpuArray{T, N}) where {T, N}
 	y = WgpuArray{S}(undef, size(x))
 	cast_kernel(x, y)
 	return y
 end
 
-function prefixsum(x)
-	y = similar(x)
-	prefixsum_kernel(x, y)
+@tracepoint "prefixCall" function prefixsum(x)
+	@tracepoint "similar" y = similar(x)
+	@tracepoint "prefixsum_kernel" prefixsum_kernel(x, y)
 	return y
 end
 
